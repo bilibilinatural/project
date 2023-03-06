@@ -202,9 +202,7 @@ Etag由服务器端生成，客户端通过If-Match或者说If-None-Match这个�
 
 
 
-#### webpack
-
-
+#### 
 
 
 
@@ -308,6 +306,790 @@ Microtasks：微任务同样也是一直执行，直到队列为空，但是，�
 ```
 
 dom点击事件和js调用函数对执行栈的不同影响。
+
+
+
+
+
+### webpack
+
+#### 资源加载器
+
+webpack 默认只支持js文件的打包，对于其他类型的文件，我们需要使用各种loader来把他们转换成js文件
+
+##### Data URLs
+
+```html
+//协议   媒体类型和编码       文件内容	
+
+data:[<mediatype>][;base64],<data>
+
+eg:data:text/hetml;charset=UTF-8,<h1>html content</h1>
+//如果事图片字体这种无法直接通过文本直接去表示的二进制类型文件， 我们可以通过base64将文件内容编码，那么编码后的结果，也就是一个字符串来表示这个文件的内容 
+eg:data:image/png;base64,ivFdfe2......sUqmm
+```
+
+```js
+/**针对于其他资源模块的加载规则的配置,通过loader我们可以实现加载任意类型的资源 */
+    module:{
+        /**两个属性，test属性是一个正则表达式用于匹配我们在打包过程中遇到的文件路径
+         * use属性用来去指定我们匹配到的文件要使用的loader
+         * css-loader的作用就是讲我们的css文件转换为js代码
+         * 单独指定cssloader并不生效，还要安装style-loader把css代码通过style标签的形式追加到页面上
+         */
+        rules:[
+            {
+                test:/.css$/,
+                // use:'css-loader'
+                /**tip:如果配置了多个loader，执行顺序是从后往前 */
+                use:[
+                    'style-loader',
+                    'css-loader'
+                ]
+            },{
+                test:/.(jpg|png)$/,
+                /**图片，字体等资源文件 */
+                // use:'file-loader'
+                /**或者使用data urls的方式
+                 * // use:'url-loader'
+                 * 这种方式适合比较小的文件，否则我们打包出来的文件就会比较大
+                 * 最佳实践方式：1.小文件使用data urls，减少请求次数。
+                 * 2.大文件仍然使用file-loader的方式，单独提取存放，提高加载速度
+                 */
+                use:{
+                    loader:'url-loader',
+                    options:{
+                        /**这里10KB用url-loader，超过默认用file-loader，所以这里必须也要安装file-loader */
+                        limit:10 * 1024 //10KB
+                    }
+                }
+            }
+        ]
+    }
+```
+
+##### 常用的资源加载器
+
+- 编译转换类：他会把我们加载到的资源模块，转会为JavaScript代码，例如css-loader--->转换为以js形式工作的CSS模块
+- 文件操作类型：他们都会把我们加载到的资源模块，拷贝到输出目录，同时又将这个文件的访问路径向外导出，例如：file-loader
+- 代码检查类：代码校验类加载器，目的是统一代码风格，从而提高代码质量，这种加载器一般不会去修改我们生产环境的代码
+
+##### webpack与ES20015
+
+webpack仅仅是对模块完成打包工作，因为模块打包的需要，所以处理了import和export，除此之外他并不能转换其他的ES6特性，并不是webpack天生就可以处理ES2015的代码。
+
+如果我们需要webpack在打包过程中同时处理其他ES6特性转换，我们需要为js文件配置一个额外的编译性loader。例如最常见的就是babel-loader。
+
+```sh
+//babel-loader需要额外依赖babel的核心模块，以及完成具体特性转换插件的一个集合@babel/preset-env
+yarn add babel-loader @babel/core @babel/preset-env --dev
+```
+
+```js
+//接下来我们指定js文件加载器为babel-loader，这样的话babel-loader就会取代默认的加载器，这样在打包过程中他就会帮我们处理打包过程中的一些新特性了
+{
+     test:/.js$/,
+     use:'babel-loader' 
+ }
+//我们运行webpack 打包命令发现，打包完成的文件里面这些新特性仍然没有被转换。
+/**
+因为babel，严格意义上来讲只是一个转换js代码的一个平台，我们需要去基于babel这样一个平台，去通过不同的插件来转换我们代码当中一些具体的特性。所以我们需要去为babel配置他所需要的插件。
+*/
+use:{
+	 loader:'babel-loader',
+  	 options:{
+  	 presets:['@babel/preset-env']
+         }
+ }
+//这里我们直接给loader传入相应的配置就可以了。我们这里直接使用preset-env这个插件集合，因为这个集合当中已经包含了全部的es最新特性。
+```
+
+- webpack 只是打包工具
+- 加载器可以用来编译转换代码
+
+##### webpack模块的加载方式
+
+- 遵循ES modules标准的import声明
+
+```js
+import createHeading from './heading.js'
+/**因为只需要执行直接import */
+import './index.css'
+import icon from './icon.jpg'
+/**传统设计模式，都是要求我们js和css代码分离开，但是webpack建议我们根据当前代码需求引入任何需要引入的资源
+ *  JavaScript驱动整个前端应用。而你现在的业务就是需要css代码
+ * 1、逻辑合理,js确实需要这些资源文件
+ * 2、确保上线资源不缺失，都是必要的
+ */
+const heading = createHeading()
+
+document.body.append(heading)
+
+const img = new Image()
+img.src = icon
+
+document.body.append(img)
+```
+
+- 遵循CommonJs标准的require函数
+
+  ```js
+  //如果用require函数载入一个ES modules的话，对于ES modules默认导出，我们需要require函数导入结果的default属性去获取
+  const createHeading =require('./heading.js').default
+  require('./index.css')
+  cosnt icon = require('./icon.jpg')
+  ```
+
+- 遵循AMD标准的define函数和require函数
+
+webpack兼容多种模块化标准，除非必要的情况，否则一定不要在项目中混合使用这些标准。
+
+那除了JavaScript代码中的这三种方式以外，还有一些独立的加载器，他在工作时，也会去处理我们所加载到的资源当中的一些导入的模块。
+
+- **loader加载的非JavaScript也会触发资源加载**
+
+  例如CSS loader加载的CSS文件，样式代码中的@import 指令和url函数，他会使用css-loader去处理它。处理过程当中如果发现有用到url函数去载入图片（background-img：url(background.png)），就会将这个图片作为一个资源模块加入到我们的打包过程中。webpack再会去根据我们的配置文件当中，针对于我们遇到的这个文件去找到相应的loader，此时这张图片是png图片，这种图片就会交给url-loader去处理。
+
+  ```js
+  //样式文件当中除了属性当中使用到这个rul函数，还有import指令，他同样支持去加载其他样式资源模块
+  @import url(reset.css);
+  //webpack.config.js
+  {
+                  test:/.(jpg|png)$/,
+                  /**图片，字体等资源文件 */
+                  // use:'file-loader'
+                  /**或者使用data urls的方式
+                   * // use:'url-loader'
+                   * 这种方式适合比较小的文件，否则我们打包出来的文件就会比较大
+                   * 最佳实践方式：1.小文件使用data urls，减少请求次数。
+                   * 2.大文件仍然使用file-loader的方式，单独提取存放，提高加载速度
+                   */
+                  use:{
+                      loader:'url-loader',
+                      options:{
+                          /**这里10KB用url-loader，超过默认用file-loader，所以这里必须也要安装file-loader */
+                          limit:10 * 1024 //10KB
+                      }
+                  }
+              }
+  
+  //html文件当中去加载额外的资源的一些方式。html当中也会有一些引入其他资源的可能性，例如img标签的src
+  
+  <footer>
+      <img src="background.jpg" alt="better" width="256">
+  </footer>
+  //打包过后发现，html文件当中src属性也可以触发资源模块的加载，但是触发资源加载的不止有src属性，比如a标签里面的href属性。我们添加过后重新打包发现我们找不到a标签所对应的这个文件
+  <footer>
+      <!-- <img src="background.jpg" alt="better" width="256"> -->
+      <a href="background.jpg">download png</a>
+  </footer>
+  /*
+  因为html loader 默认只会去处理img标签的src属性，如果我们需要其他标签的一些属性也能够触发打包的话，我们需要去添加一些相应的配置
+  */
+  {
+                  test:/.html$/,
+                  use:{
+                      loader:'html-loader',
+                      options:{
+                          /**html在加载的时候对应页面上的一些属性做额外的处理，默认只有img标签的src属性 */
+                          attrs:['img:src','a:href']
+                      }
+                  }
+              }
+  
+  
+  ```
+
+##### webpack 工作原理
+
+一般项目中散落着各种各样的代码以及源文件，找到其中一个文件作为打包的入口，那一般情况下，这个文件都会是一个JavaScript文件，然后顺着入口文件中的代码，根据代码中的出现的import或者想require之类的语句，解析推断出来这个文件所依赖的资源模块，然后分别取解析每个资源模块对应的依赖。最后就形成了整个项目中所用到文件之间的一个依赖关系的一个依赖树，有了这个依赖树后webpack会递归这个依赖树，然后找到每个节点对应的资源文件，最后根据我们配置文件当中的rules属性， 去找到这个模块所对应的加载器。最后会将加载到的结果放入bounder.js也就是打包结果中，从而实现整个项目的打包，整个过程中，loader起到了关键的作用，如果没有loader，他也只能算一个用来打包或者合并js模块代码的工具了。
+
+##### loader工作原理
+
+```js
+const marked = require('marked')
+
+module.exports = source=> {
+    // console.log(source)
+    //return 'hello ~'
+    // return 'console.log("hello ~")'
+    const html = marked(source)
+    // return html //这里要把html代码转换为JavaScript代码
+    /**这样html存在的换行符，还有一些内部的引号，我们拼接到一起可能会造成语法上的错误。 */
+    // return `module.exports = "${html}"`
+    /**json会保留换行符 */
+    // return `module.exports = "${JSON.stringify(html)}"`
+
+    //返回html字符串交给下一个loader处理
+    return html
+}
+
+/**
+每个webpack loader都需要导出一个函数，整个函数就是loader对加载到资源的一个处理过程，你可以在此过程中依次使用多个loader，但是返回的结果必须是一段JavaScript代码。
+**/
+
+{
+                test:/.md$/,
+                use:['html-loader','./markdown-loader']
+ }
+//webpack 中管道的概念，对于同一个资源可以依次使用多个loader
+```
+
+##### 插件机制
+
+目的是为了增强webpack自动化能力
+
+loader专注实现资源模块的加载，从而去实现整体项目的打包。
+
+plugin解决除了资源加载以外，其他一些自动化工作。
+
+eg:egg:清除上一次dist目录。拷贝不需要打包的静态资源文件到输出目录。压缩输出代码
+
+##### webpack常用插件
+
+- clean-webpack-plugin   清理上一次打包结果
+
+- html-webpack-plugin   自动生成使用打包结果的html
+
+- copy-webpack-plugin   用于输出静态资源文件到打包目录
+
+  ```js
+  /**添加一个插件就是在数组当中去添加一个元素。绝大多数插件导出的都是一个类型
+       * 我们使用它就是通过这个类型去创建一个实例
+       */
+      plugins:[
+          new CleanWebpackPlugin(),
+          new HtmlWebpackPlugin({
+              title:'webpack plugin sample',
+              mete:{
+                  viewport:'width=device-width'
+              },
+              template:'./index.html',
+              filename:'./index.html'
+          }),
+          //生成多个html文件，创建多个实例就可以了
+          new HtmlWebpackPlugin({
+              template:'./index.html',
+              filename:'./about.html'
+          }),
+          new CopyWebpackPlugin({
+              patterns: [
+                {
+                  from: path.resolve(__dirname, "public"),
+                },
+              ],
+            })
+      ]
+  ```
+
+  ##### Plugin通过钩子机制实现
+
+  webpack插件是利用webpack每个环节埋下的hook，我们在开发插件的过程中通过不同的hook上挂载不同的任务，来扩展webpack的能力 
+
+  插件一般是一个函数或者是一个包含apply方法的对象。通过生命周期的钩子中挂载函数实现扩展。
+
+  ```js
+  class MyPlugin {
+      apply(Compiler){
+          console.log('myplugin start')
+          // 通过tap方法去注册一个钩子函数
+          Compiler.hooks.emit.tap('MyPlugin',compilation=>{
+              //compilation =>可以理解为此次打包的上下文
+              for (const name in compilation.assets) {
+                  // compilation.assets 资源文件属性
+                  console.log('name:',name)
+                  if(name.endsWith('.js')){
+                      const contents = compilation.assets[name].source()
+                      const withoutComments = contents.replace(/\/\*+\*\//g, '')
+                      // console.log('contents',withoutComments);
+                      compilation.assets[name] = {
+                          // source:()=> contents,
+                          source:()=> withoutComments,
+                          size:()=>withoutComments.length
+                      }
+                  }
+              }
+          })
+      }
+  }
+  ```
+
+  #### webpack 增强开发体验
+
+  - watch模式，监听文件变化，自动重新打包,自动编译。yarn webpack --watch
+
+  - 自动刷新浏览器：browser-sync 来启动我们的http服务
+
+    ```js
+    browser-sync  dist --files "**/*"  监听打包文件的变化
+    ```
+
+  ##### webpack Dev Server
+
+  官方提供的一个开发工具，他提供了一个开发服务器，并且它将自动编译和自动刷新浏览器等一系列功能集成在了一起
+
+  ##### webpack Dev Server 支持配置代理
+
+  ```js
+  devServer: {
+          // contentBase:'./public'
+          static: {
+              directory: path.join(__dirname, 'public'),
+          },
+              proxy: {
+              '/api': {
+                  // http://localhost:8080/api/users -> https://api.github.com/api/users
+                  target: 'http://api.github.com',
+                  //http://localhost:8080/api/users -> https://api.github.com/users
+                  pathRewrite: { '^/api': '' },
+                  //不能使用 localhost:8080 作为请求 GitHub 的主机名
+                  changOrigin:true,
+                  secure:false,// 这是签名认证，http和https区分的参数设置
+              }
+          }
+      },
+  ```
+
+  ##### 配置Source Map
+
+  ```js
+  devtool:'source-map',
+  ```
+
+  | devtool                                    | performance                              | production | quality        | comment                                                      |
+  | :----------------------------------------- | :--------------------------------------- | :--------- | :------------- | :----------------------------------------------------------- |
+  | (none)                                     | **build**: fastest  **rebuild**: fastest | yes        | bundle         | Recommended choice for production builds with maximum performance. |
+  | **`eval`**                                 | **build**: fast  **rebuild**: fastest    | no         | generated      | Recommended choice for development builds with maximum performance. |
+  | `eval-cheap-source-map`                    | **build**: ok  **rebuild**: fast         | no         | transformed    | Tradeoff choice for development builds.                      |
+  | `eval-cheap-module-source-map`             | **build**: slow  **rebuild**: fast       | no         | original lines | Tradeoff choice for development builds.                      |
+  | **`eval-source-map`**                      | **build**: slowest  **rebuild**: ok      | no         | original       | Recommended choice for development builds with high quality SourceMaps. |
+  | `cheap-source-map`                         | **build**: ok  **rebuild**: slow         | no         | transformed    |                                                              |
+  | `cheap-module-source-map`                  | **build**: slow  **rebuild**: slow       | no         | original lines |                                                              |
+  | **`source-map`**                           | **build**: slowest  **rebuild**: slowest | yes        | original       | Recommended choice for production builds with high quality SourceMaps. |
+  | `inline-cheap-source-map`                  | **build**: ok  **rebuild**: slow         | no         | transformed    |                                                              |
+  | `inline-cheap-module-source-map`           | **build**: slow  **rebuild**: slow       | no         | original lines |                                                              |
+  | `inline-source-map`                        | **build**: slowest  **rebuild**: slowest | no         | original       | Possible choice when publishing a single file                |
+  | `eval-nosources-cheap-source-map`          | **build**: ok  **rebuild**: fast         | no         | transformed    | source code not included                                     |
+  | `eval-nosources-cheap-module-source-map`   | **build**: slow  **rebuild**: fast       | no         | original lines | source code not included                                     |
+  | `eval-nosources-source-map`                | **build**: slowest  **rebuild**: ok      | no         | original       | source code not included                                     |
+  | `inline-nosources-cheap-source-map`        | **build**: ok  **rebuild**: slow         | no         | transformed    | source code not included                                     |
+  | `inline-nosources-cheap-module-source-map` | **build**: slow  **rebuild**: slow       | no         | original lines | source code not included                                     |
+  | `inline-nosources-source-map`              | **build**: slowest  **rebuild**: slowest | no         | original       | source code not included                                     |
+  | `nosources-cheap-source-map`               | **build**: ok  **rebuild**: slow         | no         | transformed    | source code not included                                     |
+  | `nosources-cheap-module-source-map`        | **build**: slow  **rebuild**: slow       | no         | original lines | source code not included                                     |
+  | `nosources-source-map`                     | **build**: slowest  **rebuild**: slowest | yes        | original       | source code not included                                     |
+  | `hidden-nosources-cheap-source-map`        | **build**: ok  **rebuild**: slow         | no         | transformed    | no reference, source code not included                       |
+  | `hidden-nosources-cheap-module-source-map` | **build**: slow  **rebuild**: slow       | no         | original lines | no reference, source code not included                       |
+  | `hidden-nosources-source-map`              | **build**: slowest  **rebuild**: slowest | yes        | original       | no reference, source code not included                       |
+  | `hidden-cheap-source-map`                  | **build**: ok  **rebuild**: slow         | no         | transformed    | no reference                                                 |
+  | `hidden-cheap-module-source-map`           | **build**: slow  **rebuild**: slow       | no         | original lines | no reference                                                 |
+  | `hidden-source-map`                        | **build**: slowest  **rebuild**: slowest | yes        | original       | no reference. Possible choice when using SourceMap only for error reporting purposes. |
+
+
+
+##### 个人经验选择
+
+1. 开发模式：cheap-module-eval-source-map    
+
+   - 使用框架方式比较多，代码经过loader转换过后差异较大
+
+   - 代码风格每行代码不会超过80个字符
+
+   - 首次打包速度慢无所谓，重写打包相对较快
+
+ 	2. 生产模式： none
+     - SourceMap 会暴露源代码
+     - 调试是开发阶段的事
+
+##### 模块热替换
+
+应用程序运行过程中，实时替换某个模块，应用运行状态不受影响，自动刷新导致页面状态丢失。热替换只将修改的模块实时替换到应用中。
+
+HMR（Hot Module Replacement）是webpack中最强大和最受欢迎的功能之一，极大程度而提高了开发者的工作效率。
+
+HMR集成在了webpack-dev-server中，开启webpack-dev-server --hot或者在配置文件中开启
+
+```js
+devServer: {
+        hot:true,
+}
+//我们发现除了样式文件是热更新，更改js文件还是会刷新页面。
+```
+
+webpack 中的HMR并不是开箱即用的，需要手动处理模块热替换的逻辑。
+
+样式文件热更新是因为style-loader处理了。因为css文件直接覆盖之前的文件就可以了。而js文件是没有规律的。
+
+框架下的开发，每种文件都是有规律的。
+
+##### HMR API
+
+```js
+/**accept用于注册当某一个模块更新过后的处理函数 
+ * module是HotModuleReplacementPlugin暴露的变量
+*/
+// module.hot.accept('./heading',()=>{
+//   console.log('heading 模块更新了，需要这里手动处理热替换逻辑');
+// })
+
+/**图片的热替换 */
+module.hot.accept('./icon.jpg',()=>{
+  /**重新赋值新的图片就可以了 */
+  img.src = icon
+})
+//处理热替换的代码打包完成后只会留下
+if(false){}//所以并不会对生产环境造成影响
+```
+
+##### 生产环境优化
+
+webpack4 有了mode的概念
+
+1. 配置文件根据环境不同导出不同配置
+
+   ```js
+   /**
+    * 配置文件根据环境不同导出不同配置
+    yarn webpack --env production
+    * env:通过cli传递的一个环境名参数。argv:运行cli过程中所传递的所有参数 
+    * */
+   module.exports = (env, argv) => {
+       const config = {
+           /**production(default)，development ,none三种取值  */
+           // mode:'development',
+           mode: 'none',
+           /** 打包入口文件 ./不能省略*/
+           entry: './src/index.js',
+           /** 打包输出文件的位置，这个值是一个对象*/
+           output: {
+               filename: 'bundle.js',
+               /**指定文件输出目录，这个地址必须是个绝对路径 
+                * 这里可以用node中的path模块
+               */
+               path: path.join(__dirname, 'dist'),
+               /**默认值是空字符串，表示是网站的根目录，这里我们指定资源地址为dist/注意/不能省略 */
+               // publicPath:'dist/'
+           },
+           devtool: 'source-map',
+           devServer: {
+               // hot:true,
+               /**出现报错不会回退之前状态，看不到报错信息 */
+               hotOnly: true,
+               // contentBase:'./public'
+               static: {
+                   directory: path.join(__dirname, 'public'),
+               },
+               proxy: {
+                   '/api': {
+                       // http://localhost:8080/api/users -> https://api.github.com/api/users
+                       target: 'https://api.github.com',
+                       //http://localhost:8080/api/users -> https://api.github.com/users
+                       pathRewrite: { '^/api': '' },
+                       //不能使用 localhost:8080 作为请求 GitHub 的主机名
+                       changOrigin: true,
+                       // secure:false,// 这是签名认证，http和https区分的参数设置
+                   }
+               }
+           },
+           /**针对于其他资源模块的加载规则的配置,通过loader我们可以实现加载任意类型的资源 */
+           module: {
+               /**两个属性，test属性是一个正则表达式用于匹配我们在打包过程中遇到的文件路径
+                * use属性用来去指定我们匹配到的文件要使用的loader
+                * css-loader的作用就是讲我们的css文件转换为js代码
+                * 单独指定cssloader并不生效，还要安装style-loader把css代码通过style标签的形式追加到页面上
+                */
+               rules: [
+                   {
+                       test: /.js$/,
+                       // use:'babel-loader' 
+                       use: {
+                           loader: 'babel-loader',
+                           options: {
+                               presets: ['@babel/preset-env']
+                           }
+                       }
+                   },
+                   {
+                       test: /.css$/,
+                       // use:'css-loader'
+                       /**tip:如果配置了多个loader，执行顺序是从后往前 */
+                       use: [
+                           'style-loader',
+                           'css-loader'
+                       ]
+                   }, {
+                       test: /.(jpg|png)$/,
+                       /**图片，字体等资源文件 */
+                       // use:'file-loader'
+                       /**或者使用data urls的方式
+                        * // use:'url-loader'
+                        * 这种方式适合比较小的文件，否则我们打包出来的文件就会比较大
+                        * 最佳实践方式：1.小文件使用data urls，减少请求次数。
+                        * 2.大文件仍然使用file-loader的方式，单独提取存放，提高加载速度
+                        */
+                       // use:{
+                       //     loader:'url-loader',
+                       //     options:{
+                       //         /**这里10KB用url-loader，超过默认用file-loader，所以这里必须也要安装file-loader */
+                       //         limit:10 * 1024 //10KB
+                       //     }
+                       // }
+                       type: 'asset',
+                       parser: {
+                           dataUrlCondition: { maxSize: 10 * 1024 }
+                       },
+                       generator: {
+                           filename: 'img/[hash:10][ext][query]'
+                       }
+                   }, {
+                       test: /.html$/,
+                       use: {
+                           loader: 'html-loader',
+                           options: {
+                               /**html在加载的时候对应页面上的一些属性做额外的处理，默认只有img标签的src属性 */
+                               // attrs:['img:src','a:href'] webpack4写法
+                               sources: true
+                           }
+                       }
+                   }, {
+                       test: /.md$/,
+                       use: ['html-loader', './markdown-loader']
+                   }
+               ]
+           },
+           /**添加一个插件就是在数组当中去添加一个元素。绝大多数插件导出的都是一个类型
+            * 我们使用它就是通过这个类型去创建一个实例
+            */
+           plugins: [
+               new CleanWebpackPlugin(),
+               new HtmlWebpackPlugin({
+                   title: 'webpack plugin sample',
+                   mete: {
+                       viewport: 'width=device-width'
+                   },
+                   template: './index.html',
+                   filename: './index.html'
+               }),
+               //生成多个html文件，创建多个实例就可以了
+               new HtmlWebpackPlugin({
+                   template: './index.html',
+                   filename: './about.html'
+               }),
+               /**一般用于上线前才使用，开发阶段最好不要使用这个插件，因为我们会频繁重复执行打包任务。 */
+               // new CopyWebpackPlugin({
+               //     patterns: [
+               //       {
+               //         from: path.resolve(__dirname, "public"),
+               //       },
+               //     ],
+               //   }),
+               new webpack.HotModuleReplacementPlugin(),
+               new MyPlugin()
+           ]
+       }
+       if (env === 'production') {
+           config.mode = 'production'
+           config.devtool = false
+           config.plugins = [
+               ...config.plugins,
+               new CleanWebpackPlugin(),
+               new CopyWebpackPlugin(
+                   {
+                       patterns: [
+                           {
+                               from: path.resolve(__dirname, "public"),
+                           },
+                       ],
+                   }
+               )
+           ]
+       }
+       return config
+   }
+   
+   ```
+
+   
+
+2. 一个环境对应一个配置文件
+
+```JS
+//一般有三个文件。
+//webpack.common.js
+//webpack.dev.js
+//webpack.prod.js
+const common = require('./webpack.common.js')
+const { CleanWebpackPlugin } = require('clean-webpack-plugin')
+const CopyWebpackPlugin = require('copy-webpack-plugin')
+//Object.assign会覆盖配置，这里使用webpack-merge模块
+const merge = require('webpack-merge')
+module.exports = merge({},common,{
+	mode: 'production',
+    plugins:[
+       		new CleanWebpackPlugin(),
+            new CopyWebpackPlugin()
+    ]
+})
+
+yarn webpack --config webpack.prod.js
+
+```
+
+##### Define Plugin 
+
+为代码注入全局成员 
+
+在production模式下，默认注入这个常量成员会  process.env.NODE_ENV  很多第三方模块会根据这个常量来判断当前的运行环境
+
+```js
+const webpack = require('webpack')
+module.exports ={
+	mode: 'none',
+    entry: './src/index.js',
+    plugins:[
+       		new webpack.DefinePlugin({
+			//这个对象中每一个键值对都会被注入到代码当中
+                API_BASE_URL:'注入对象测试'
+            })
+    ]
+}
+```
+
+##### Tree Sharking
+
+production 模式下自动开启
+
+```js
+//去除未引用的代码 
+module.exports ={
+	mode: 'none',
+    entry: './src/index.js',
+ 	//集中配置webpack优化功能的选项
+    optimization:{
+        usedExports:true,//标记枯树叶
+        minimize:true,//负责摇掉他们
+        concatenateModules:true//尽可能将所有的模块合并输出到一个函数当中。及提升了运行效率，又减少了代码的体积。
+    }
+}
+```
+
+Tree Sharking前提是使用ES Modules，如果存在babel-loader，就有可能ES Modules ->CommonJS，新版本中babel-loader禁用了自动转换CommonJS代码
+
+```js
+//手动配置强制转换CommonJS
+ use: {
+     loader: 'babel-loader',
+     options: {
+     presets:[['@babel/preset-env'],{ modules: 'commonjs'}]
+	}
+}
+```
+
+##### sieEffects 
+
+一般用于NPM包标记是否有副作用。
+
+```js
+module.exports ={
+	mode: 'none',
+    entry: './src/index.js',
+ 	//集中配置webpack优化功能的选项
+    optimization:{
+       sideEffect:true//生产模式下会自动开启
+    }
+}
+
+//在packge.json中标记"sideEffect":false ，没有用到的模块没有副作用，那么没有用到的模块就不会被打包进来
+"sideEffect":false
+//也可以指定那些有副作用
+"sideEffect":[
+'./src/index.js',
+ '*.css'
+]
+```
+
+##### 代码分割
+
+- 多打包入库
+
+```js
+module.exports ={
+	mode: 'none',
+    //配置一个对象，如果是数组，是把多个文件打包到一起
+    //属性名就是入口的名称，值就是文件对应的路径
+    entry: {
+        index:'./index.js',
+        album:'./album.js'
+    },
+ 	output:{
+		filename:'[name].bundle.js'
+    },
+    plugins:[
+          new HtmlWebpackPlugin({
+            title: 'webpack plugin index',
+            mete: {
+                viewport: 'width=device-width'
+            },
+            template: './index.html',
+            filename: './index.html',
+            chunks:['index']
+        }),
+        new HtmlWebpackPlugin({
+            title: 'webpack plugin album',
+            mete: {
+                viewport: 'width=device-width'
+            },
+            template: './album.html',
+            filename: './album.html',
+            chunks:['album']
+        })
+    ]
+    
+}
+```
+
+提取公共模块
+
+```js
+module.exports ={
+	mode: 'none',
+    entry: './src/index.js',
+ 	//集中配置webpack优化功能的选项
+    optimization:{
+       splitChunks:{
+           chunks:'all'
+		}//所有的公共模块提取到一个bundle中
+    }
+}
+```
+
+
+
+- 动态导入
+
+单页面应用组件的路由功能就是动态导入
+
+```js
+ //import album from './album.js' 
+ //import posts from './post.js'
+//动态导入，webpack会自动处理分包和按需加载
+const render = () => {
+  const hash = window.location.hash || '#posts'
+  const mainElement = document.querySelector('.main')
+  mainElement.innerHTML = ''
+  if(hash === '#posts'){
+    // mainElement.appendChild(posts())
+    import(/* webpackChunkName:'post' */ './posts').then(({default: posts})=>{
+      mainElement.appendChild(posts)
+    })
+  } else if (hash === '#album') {
+    // mainElement.appendChild(album)
+    import(/* webpackChunkName:'album' */ './album').then(({default: album})=>{
+      mainElement.appendChild(album)
+    })
+  }
+ }
+```
 
 
 
